@@ -12,11 +12,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Login to Dockerhub
+      - name: Login to TCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: registry.rancher.cn
+          username: ${{ secrets.TCR_USERNAME }}
+          password: ${{ secrets.TCR_TOKEN }}
       - name: CI
         env:
           CROSS: "true"
@@ -25,7 +26,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ vars.REPO || 'cnrancher' }}/${{ vars.IMAGE || 'webhook-receiver' }}
+          images: registry.rancher.cn/${{ vars.REPO || 'cnrancher' }}/${{ vars.IMAGE || 'webhook-receiver' }}
           tags: |
             type=ref,event=tag
             type=ref,event=branch
@@ -41,6 +42,8 @@ jobs:
           context: .
           labels: ${{ steps.meta.outputs.labels }}
           tags: "${{ steps.meta.outputs.tags }}"
+          sbom: true
+          provenance: true
           push: true
       - name: checksum
         run: |
@@ -51,3 +54,27 @@ jobs:
         with:
           files: "dist/artifacts/*"
           draft: true
+  image-sign:
+    permissions:
+      contents: read
+      id-token: write # required for hangar sign OIDC keyless mode
+    runs-on: ubuntu-latest
+    needs: [ build-and-deploy ]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ${{ github.ref_name}}
+    - name: Login to TCR
+      uses: docker/login-action@v3
+      with:
+        registry: registry.rancher.cn
+        username: ${{ secrets.TCR_USERNAME }}
+        password: ${{ secrets.TCR_TOKEN }}
+    - name: Hangar Sign
+      uses: cnrancher/hangar/.github/actions/hangar-sign@main
+      with:
+        version: v1.9.0-beta.14
+        images: |
+          registry.rancher.cn/cnrancher/webhook-receiver:${{ github.ref_name }}
